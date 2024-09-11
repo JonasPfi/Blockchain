@@ -1,0 +1,23 @@
+version: '3'
+
+services:
+  fastapi_app_1:
+    build:
+      context: ./app  # Pfad zu dem Verzeichnis, das die Dockerfile enthält
+      dockerfile: Dockerfile  # Name der Dockerfile (optional, wenn die Datei `Dockerfile` heißt)
+    ports:
+      - "8001:8000"
+
+  fastapi_app_2:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8000"
+
+  fastapi_app_3:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8000"
