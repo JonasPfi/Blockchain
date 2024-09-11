@@ -16,7 +16,7 @@ blockchain = Blockchain()
 # Hole Umgebungsvariable für andere Knoten im Netzwerk
 known_nodes = os.getenv('KNOWN_NODES', '')
 
-# Automatische Registrierung der Knoten
+# Registrierung der Knoten (manuell über den API-Endpunkt)
 def register_known_nodes():
     if known_nodes:
         nodes = known_nodes.split(',')
@@ -28,7 +28,7 @@ def register_known_nodes():
             except Exception as e:
                 print(f"Failed to register with node {node}: {e}")
 
-# Registrierung von Validatoren (optional)
+# Registrierung von Validatoren (manuell über den API-Endpunkt)
 def register_validator():
     try:
         response = requests.post(f'http://localhost:5000/validators/register', json={"validator": node_identifier})
@@ -125,14 +125,8 @@ def consensus():
     return jsonify(response), 200
 
 if __name__ == '__main__':
-    # Warte kurz, um sicherzustellen, dass alle Knoten laufen
-    time.sleep(5)
-
-    # Knoten automatisch registrieren
-    register_known_nodes()
-
-    # Validator automatisch registrieren
-    register_validator()
+    # Kein automatisches Registrieren mehr, alles manuell
+    # Knoten und Validatoren werden über die Endpunkte registriert
 
     # Flask App starten
     app.run(host='0.0.0.0', port=5000)
