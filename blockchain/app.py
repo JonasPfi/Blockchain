@@ -1,6 +1,9 @@
+import os
+import time
 from flask import Flask, jsonify, request
 from uuid import uuid4
 from blockchain import Blockchain
+import requests
 
 app = Flask(__name__)
 
@@ -9,6 +12,30 @@ node_identifier = str(uuid4()).replace('-', '')
 
 # Initialisiere Blockchain
 blockchain = Blockchain()
+
+# Hole Umgebungsvariable für andere Knoten im Netzwerk
+known_nodes = os.getenv('KNOWN_NODES', '')
+
+# Automatische Registrierung der Knoten
+def register_known_nodes():
+    if known_nodes:
+        nodes = known_nodes.split(',')
+        for node in nodes:
+            try:
+                response = requests.post(f'http://{node}/nodes/register', json={"nodes": [f"http://{node_identifier}"]})
+                if response.status_code == 201:
+                    print(f"Node registered with {node}")
+            except Exception as e:
+                print(f"Failed to register with node {node}: {e}")
+
+# Registrierung von Validatoren (optional)
+def register_validator():
+    try:
+        response = requests.post(f'http://localhost:5000/validators/register', json={"validator": node_identifier})
+        if response.status_code == 201:
+            print(f"Validator {node_identifier} registered.")
+    except Exception as e:
+        print(f"Failed to register validator: {e}")
 
 @app.route('/mine', methods=['POST'])
 def mine_block():
@@ -68,7 +95,7 @@ def register_nodes():
     return jsonify(response), 201
 
 @app.route('/validators/register', methods=['POST'])
-def register_validator():
+def register_validator_endpoint():
     values = request.get_json()
     validator = values.get('validator')
 
@@ -98,4 +125,14 @@ def consensus():
     return jsonify(response), 200
 
 if __name__ == '__main__':
+    # Warte kurz, um sicherzustellen, dass alle Knoten laufen
+    time.sleep(5)
+
+    # Knoten automatisch registrieren
+    register_known_nodes()
+
+    # Validator automatisch registrieren
+    register_validator()
+
+    # Flask App starten
     app.run(host='0.0.0.0', port=5000)

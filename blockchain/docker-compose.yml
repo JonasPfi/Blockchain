@@ -4,6 +4,8 @@ services:
     build: .
     ports:
       - "5001:5000"
+    environment:
+      - KNOWN_NODES=node2:5000,node3:5000,node4:5000
     networks:
       - blockchain_network
 
@@ -11,6 +13,8 @@ services:
     build: .
     ports:
       - "5002:5000"
+    environment:
+      - KNOWN_NODES=node1:5000,node3:5000,node4:5000
     networks:
       - blockchain_network
 
@@ -18,6 +22,8 @@ services:
     build: .
     ports:
       - "5003:5000"
+    environment:
+      - KNOWN_NODES=node1:5000,node2:5000,node4:5000
     networks:
       - blockchain_network
 
@@ -25,6 +31,8 @@ services:
     build: .
     ports:
       - "5004:5000"
+    environment:
+      - KNOWN_NODES=node1:5000,node2:5000,node3:5000
     networks:
       - blockchain_network
 
