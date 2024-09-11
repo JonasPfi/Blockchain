@@ -107,12 +107,6 @@ curl -X GET http://localhost:5004/nodes/resolve
 - **URL**: `http://localhost:5004/nodes/resolve`
 - **Erwartete Antwort**: Gibt an, ob die Kette ersetzt wurde und zeigt die endgültige, autoritative Blockchain.
 
-## Häufige Probleme
 
-1. **Method Not Allowed (405)**: Dies tritt auf, wenn du die falsche HTTP-Methode (z.B. `GET` statt `POST`) verwendest. Überprüfe, ob du die richtige Methode für den jeweiligen Endpunkt nutzt.
 
-2. **Connection Refused**: Stelle sicher, dass der Server läuft und du die richtige URL (einschließlich des Ports) verwendest.
 
-## Weitere Informationen
-
-Weitere Details zur Funktionsweise der Blockchain und zu den Endpunkten findest du in der Projektdokumentation.
