@@ -12,7 +12,7 @@ from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from cryptography.exceptions import InvalidSignature
 import time
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 app = FastAPI()
 
 container_name = os.getenv("CONTAINERNAME")
@@ -20,6 +20,7 @@ container_name = os.getenv("CONTAINERNAME")
 AUTHORITY_NODES = ["http://fastapi_app_2:8000/", "http://localhost:8002"]
 AUTHORITY_PUBLIC_KEYS = []  # Public keys fetched from authority nodes
 
+transaction_requests = []
 PRIVATE_KEY_FILE = "private_key.pem"
 PUBLIC_KEY_FILE = "public_key.pem"
 
@@ -63,17 +64,22 @@ class SendTransactionRequest(BaseModel):
     container: str
     amount: float
 
+class AcceptTransactionRequest(BaseModel):
+    number: int
 
 class Transaction(BaseModel):
+    index: int
     sender: str
-    sender_signature: str
     recipient: str
-    recipient_signature: str
     amount: float
-    expiration: datetime
+    expiration: str
     previous_hash: str = None
+    current_hash: str = None
+    sender_signature: str = None
+    recipient_signature: str = None
     timestamp: str
     authority_signature: str
+    
 
 
 class Transchain:
@@ -81,18 +87,36 @@ class Transchain:
         self.transactions = [self.create_genesis_transaction()]
 
     def create_genesis_transaction(self) -> dict:
-        # Genesis-Transaktion ist der Startpunkt der Blockchain
+        # Define transaction components
+        index = 0
+        sender = 'Genesis'
+        recipient = 'Genesis'
+        amount = 0.0
+        expiration = None
+        previous_hash = None
+        sender_signature = None
+        recipient_signature = None
+        timestamp = str(datetime.utcnow())
+        authority_signature = None
+
+        # Create a string representation of the transaction data
+        transaction_string = f"{index}{sender}{recipient}{amount}{expiration}{previous_hash}"
+        
+        # Calculate the hash
+        current_hash = hashlib.sha256(transaction_string.encode()).hexdigest()
+
         return {
-            'index': 0,
-            'sender': 'Genesis',
-            'recipient': 'Genesis',
-            'amount': 0.0,
-            'expiration': Date
-            'previous_hash': None,
-            'sender_signature': None,
-            'recipient_signature': None,
-            'timestamp': str(datetime.utcnow()),
-            'authority_signature': None
+            'index': index,
+            'sender': sender,
+            'recipient': recipient,
+            'amount': amount,
+            'expiration': expiration,
+            'previous_hash': previous_hash,
+            'current_hash': current_hash,
+            'sender_signature': sender_signature,
+            'recipient_signature': recipient_signature,
+            'timestamp': timestamp,
+            'authority_signature': authority_signature
         }
 
     def fetch_authority_public_keys(self):
@@ -222,21 +246,27 @@ def send_transaction(request: SendTransactionRequest):
             password=None
         )
 
+    # Define the current time and expiration time
+    current_time = str(datetime.utcnow())
+    expiration_time = str(datetime.utcnow() + timedelta(minutes=10))  
+
     # Create the transaction data (excluding the signature fields)
     transaction_data = {
-        "index": ,
+        "index": transchain.transactions[-1]["index"] + 1,
         "sender": container_name,  
         "recipient": f"{recipient_container}",  
         "amount": amount,
-        "previous_hash": "",  
-        "timestamp": current_time,
+        "previous_hash": transchain.transactions[-1]["current_hash"],  
         "expiration": expiration_time
     }
 
-    # Calculate the transaction hash
-    transaction_hash = transchain.calculate_hash(transaction_data)
+    # Convert transaction data to a string representation
+    transaction_string = f"{transaction_data['index']}{transaction_data['sender']}{transaction_data['recipient']}{transaction_data['amount']}{transaction_data['expiration']}{transaction_data['previous_hash']}"
 
-    # Sign the transaction hash
+    # Calculate the transaction hash
+    transaction_hash = hashlib.sha256(transaction_string.encode()).hexdigest()
+
+    # Sign the previous hash
     signature = private_key.sign(
         transaction_hash.encode(),
         padding.PKCS1v15(),
@@ -246,11 +276,13 @@ def send_transaction(request: SendTransactionRequest):
     # Update the transaction with the signature
     transaction = {
         **transaction_data,
+        "current_hash": transaction_hash,
         "sender_signature": signature.hex(),
-        "recipient_signature": "", 
+        "recipient_signature": "",  # To be filled later by the recipient
+        "timestamp": "",
         "authority_signature": "",
     }
-
+    print(transaction)
     # Send the transaction to the recipient
     response = requests.post(f"http://{recipient_container}:8000/receive_transaction/", json=transaction)
     return {"message": "Transaction sent", "response": response.json()}
@@ -258,14 +290,27 @@ def send_transaction(request: SendTransactionRequest):
 
 @app.post("/receive_transaction/")
 def receive_transaction(transaction: Transaction):
-    # Add the transaction to the recipient's local storage or database
-    # For simplicity, we will just return a success message
+    global transaction_requests
+    transaction_requests.append(transaction)
     print('neee')
-    return {"message": "Transaction received", "transaction": transaction.dict()}
+    return {"message": transaction_requests }
 
+@app.get("/show_transactions")
+def show_transaction():
+    return {"transactions": transaction_requests}
 
 @app.post("/accept_transaction/")
-def accept_transaction(transaction_request: Transaction):
+def accept_transaction(request: AcceptTransactionRequest):
+    index_of_request = request.number
+    print(index_of_request)
+
+    # Validate the index of the transaction request
+    if index_of_request < 0 or index_of_request >= len(transaction_requests):
+        raise HTTPException(status_code=400, detail="Invalid transaction index")
+
+    # Retrieve the transaction request
+    transaction_request = transaction_requests[index_of_request]
+
     # Load recipient's private key
     with open(PRIVATE_KEY_FILE, "rb") as private_key_file:
         private_key = serialization.load_pem_private_key(
@@ -273,27 +318,41 @@ def accept_transaction(transaction_request: Transaction):
             password=None
         )
 
-    # Sign the transaction
-    transaction_data = {
-        'sender': transaction_request.sender,
-        'recipient': transaction_request.recipient,
-        'amount': transaction_request.amount,
-        'previous_hash': transaction_request.previous_hash
-    }
-    transaction_hash = transchain.calculate_hash(transaction_data)
+    # Define the current time
+    current_time = datetime.utcnow().isoformat()
+
+    # Convert the transaction request to a dictionary
+    transaction_data = transaction_request.dict()
+
+    # Create the transaction string for hashing
+    transaction_string = (
+        f"{transaction_data['index']}"
+        f"{transaction_data['sender']}"
+        f"{transaction_data['recipient']}"
+        f"{transaction_data['amount']}"
+        f"{transaction_data['expiration']}"
+        f"{transaction_data['previous_hash']}"
+    )
+
+    # Calculate the transaction hash
+    transaction_hash = hashlib.sha256(transaction_string.encode()).hexdigest()
+
+    # Sign the transaction hash
     signature = private_key.sign(
         transaction_hash.encode(),
         padding.PKCS1v15(),
         hashes.SHA256()
     )
-    transaction_request.recipient_signature = signature.hex()
+
+    # Update the transaction with the recipient's signature
+    transaction_data['recipient_signature'] = signature.hex()
 
     # Send the signed transaction to the authority node
     authority_url = "http://localhost:8000/verify_transaction/"
-    response = requests.post(authority_url, json=transaction_request.dict())
+    response = requests.post(authority_url, json=transaction_data)
 
     if response.status_code == 200:
-        return {"message": "Transaction accepted and sent to authority"}
+        return {"message": transaction_data}
     else:
         return {"error": "Failed to send transaction to authority"}
 
