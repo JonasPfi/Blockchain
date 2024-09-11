@@ -3,10 +3,14 @@ version: '3'
 services:
   fastapi_app_1:
     build:
-      context: ./app  # Pfad zu dem Verzeichnis, das die Dockerfile enthält
-      dockerfile: Dockerfile  # Name der Dockerfile (optional, wenn die Datei `Dockerfile` heißt)
+      context: ./app
+      dockerfile: Dockerfile
     ports:
       - "8001:8000"
+    networks:
+      - app-network
+    environment:
+      - CONTAINERNAME=fastapi_app_1
 
   fastapi_app_2:
     build:
@@ -14,6 +18,11 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8002:8000"
+    networks:
+      - app-network
+    environment:
+      - CONTAINERNAME=fastapi_app_1
+
 
   fastapi_app_3:
     build:
@@ -21,3 +30,11 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8003:8000"
+    networks:
+      - app-network
+    environment:
+      - CONTAINERNAME=fastapi_app_1
+
+networks:
+  app-network:
+    driver: bridge
