@@ -1,5 +1,5 @@
 
-# Blockchain API mit curl testen
+# Blockchain API mit curl oder Postman testen 
 
 Dieses Dokument beschreibt, wie du die API-Endpunkte deiner Blockchain mithilfe von `curl` testen kannst. Du kannst mit `curl` Transaktionen hinzufügen, Blöcke minen und die Blockchain anzeigen lassen.
 
