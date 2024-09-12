@@ -16,8 +16,6 @@ app = FastAPI()
 container_name = os.getenv("CONTAINERNAME")
 
 AUTHORITY_NODES = ["http://fastapi_app_2:8000/"]
-AUTHORITY_PUBLIC_KEYS = []
-
 transaction_requests: List[Transaction] = []
 
 PRIVATE_KEY_FILE = "private_key.pem"
@@ -26,7 +24,7 @@ PUBLIC_KEY_FILE = "public_key.pem"
 generate_rsa_keys(PRIVATE_KEY_FILE, PUBLIC_KEY_FILE)
 
 # Initialize ledger
-transchain = Transchain()
+transchain = Transchain(AUTHORITY_NODES)
 
 @app.get("/")
 def read_root():
@@ -136,6 +134,8 @@ def accept_transaction(request: AcceptTransactionRequest):
     signature = sign_data(PRIVATE_KEY_FILE, transaction_hash)
     transaction_request['recipient_signature'] = signature
 
+    # Figuring out what authority node to be used is still in planning
+    # for test purposes it is left to the first node
     authority_url = f"{AUTHORITY_NODES[0]}verify_transaction/"
     response = requests.post(authority_url, json=transaction_request)
     return {"message": response.json()}
