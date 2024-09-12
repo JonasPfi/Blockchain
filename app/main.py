@@ -294,7 +294,6 @@ def send_transaction(request: SendTransactionRequest):
 def receive_transaction(transaction: Transaction):
     global transaction_requests
     transaction_requests.append(transaction)
-    print('neee')
     return {"message": transaction_requests }
 
 @app.get("/show_transactions")
@@ -413,12 +412,9 @@ def verify_transaction(transaction: Transaction):
             hashes.SHA256()
         )
         
-        print("Hallo2")
         transaction_data["authority_signature"] = signature.hex()
         print(transaction_data)
-        print("Hallo3")
         transchain.transactions.append(transaction_data)
-        print("Hallo4")
         print("Transaction added to the chain")
         return {"message": "Transaction verified and added to the chain"}
     
