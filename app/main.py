@@ -9,6 +9,7 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from cryptography.exceptions import InvalidSignature
 import time
 import os
@@ -17,7 +18,7 @@ app = FastAPI()
 
 container_name = os.getenv("CONTAINERNAME")
 
-AUTHORITY_NODES = ["http://fastapi_app_2:8000/", "http://localhost:8002"]
+AUTHORITY_NODES = ["http://fastapi_app_2:8000/"]
 AUTHORITY_PUBLIC_KEYS = []  # Public keys fetched from authority nodes
 
 transaction_requests = []
@@ -85,7 +86,7 @@ class Transaction(BaseModel):
 class Transchain:
     def __init__(self):
         self.transactions = [self.create_genesis_transaction()]
-
+        self.authority_public_keys = []
     def create_genesis_transaction(self) -> dict:
         # Define transaction components
         index = 0
@@ -123,24 +124,28 @@ class Transchain:
         """
         Fetches public keys from all authority nodes and stores them.
         """
-        global AUTHORITY_PUBLIC_KEYS
         for node_url in AUTHORITY_NODES:
             try:
                 print(f"Fetching public key from {node_url}")
-                response = requests.get(f"{node_url}/public_key")
+                response = requests.get(f"{node_url}public_key")
                 if response.status_code == 200:
                     public_key = response.json().get("public_key")
-                    AUTHORITY_PUBLIC_KEYS.append(public_key)
+                    self.authority_public_key.append(public_key)
             except Exception as e:
                 print(f"Error fetching public key from {node_url}: {e}")
 
 
     def calculate_hash(self, data: dict) -> str:
         """
-        Calculates the hash of a given block/transaction data.
+        Calculates the hash of a given block/transaction data
         """
-        data_string = json.dumps(data, sort_keys=True).encode()
-        return hashlib.sha256(data_string).hexdigest()
+        keywords = ["index", "sender", "recipient", "amount", "previous_hash", "expiration",]
+        string_to_hash = ""
+        for keyword in keywords:
+           string_to_hash += str(data[keyword]) 
+
+        return hashlib.sha256(string_to_hash.encode('utf-8')).hexdigest()
+
 
     def verify_transchain(self) -> bool:
         """
@@ -154,7 +159,6 @@ class Transchain:
             current_transaction = self.transactions[i]
             previous_transaction = self.transactions[i - 1]
 
-      
             transaction_data = {
                 'sender': current_transaction['sender'],
                 'recipient': current_transaction['recipient'],
@@ -261,10 +265,8 @@ def send_transaction(request: SendTransactionRequest):
     }
 
     # Convert transaction data to a string representation
-    transaction_string = f"{transaction_data['index']}{transaction_data['sender']}{transaction_data['recipient']}{transaction_data['amount']}{transaction_data['expiration']}{transaction_data['previous_hash']}"
 
-    # Calculate the transaction hash
-    transaction_hash = hashlib.sha256(transaction_string.encode()).hexdigest()
+    transaction_hash = transchain.calculate_hash(transaction_data)
 
     # Sign the previous hash
     signature = private_key.sign(
@@ -302,14 +304,12 @@ def show_transaction():
 @app.post("/accept_transaction/")
 def accept_transaction(request: AcceptTransactionRequest):
     index_of_request = request.number
-    print(index_of_request)
 
     # Validate the index of the transaction request
     if index_of_request < 0 or index_of_request >= len(transaction_requests):
         raise HTTPException(status_code=400, detail="Invalid transaction index")
 
-    # Retrieve the transaction request
-    transaction_request = transaction_requests[index_of_request]
+    transaction_request = transaction_requests[index_of_request].dict()
 
     # Load recipient's private key
     with open(PRIVATE_KEY_FILE, "rb") as private_key_file:
@@ -321,21 +321,12 @@ def accept_transaction(request: AcceptTransactionRequest):
     # Define the current time
     current_time = datetime.utcnow().isoformat()
 
-    # Convert the transaction request to a dictionary
-    transaction_data = transaction_request.dict()
-
-    # Create the transaction string for hashing
-    transaction_string = (
-        f"{transaction_data['index']}"
-        f"{transaction_data['sender']}"
-        f"{transaction_data['recipient']}"
-        f"{transaction_data['amount']}"
-        f"{transaction_data['expiration']}"
-        f"{transaction_data['previous_hash']}"
-    )
-
     # Calculate the transaction hash
-    transaction_hash = hashlib.sha256(transaction_string.encode()).hexdigest()
+    transaction_hash = transchain.calculate_hash(transaction_request)
+
+    if transaction_hash != transaction_request["current_hash"]:
+        print( "wrong")
+    print("true")
 
     # Sign the transaction hash
     signature = private_key.sign(
@@ -345,43 +336,91 @@ def accept_transaction(request: AcceptTransactionRequest):
     )
 
     # Update the transaction with the recipient's signature
-    transaction_data['recipient_signature'] = signature.hex()
+    transaction_request['recipient_signature'] = signature.hex()
 
     # Send the signed transaction to the authority node
-    authority_url = "http://localhost:8000/verify_transaction/"
-    response = requests.post(authority_url, json=transaction_data)
-
-    if response.status_code == 200:
-        return {"message": transaction_data}
-    else:
-        return {"error": "Failed to send transaction to authority"}
+    authority_url = f"{AUTHORITY_NODES[0]}verify_transaction/"
+    print(authority_url)
+    response = requests.post(authority_url, json=transaction_request)
+    print("OOKKKK")
+    return {"message": response.json()}
 
 @app.post("/verify_transaction/")
 def verify_transaction(transaction: Transaction):
-    # Verify the transaction here
-    transaction_data = {
-        'sender': transaction.sender,
-        'recipient': transaction.recipient,
-        'amount': transaction.amount,
-        'previous_hash': transaction.previous_hash
-    }
-    transaction_hash = transchain.calculate_hash(transaction_data)
+    # Bereite die Transaktionsdaten vor
+    transaction_data = transaction.dict()
 
-    # Load the public keys and verify the signature
-    for pub_key_pem in AUTHORITY_PUBLIC_KEYS:
-        try:
-            public_key = load_pem_public_key(pub_key_pem.encode("utf-8"))
-            signature = bytes.fromhex(transaction.authority_signature)
-            public_key.verify(
-                signature,
-                transaction_hash.encode(),
-                padding.PKCS1v15(),
-                hashes.SHA256()
-            )
-            # If verification succeeds, add the transaction to the chain
-            transchain.transactions.append(transaction.dict())
-            return {"message": "Transaction verified and added to the chain"}
-        except InvalidSignature:
-            continue
+    # Berechne den Hash der Transaktion
+    transaction_hash = transchain.calculate_hash(transaction_data)
     
-    return {"error": "Invalid transaction signature"}
+    # Überprüfe, ob der Hash mit dem aktuellen Hash der Transaktion übereinstimmt
+    if transaction_hash != transaction.current_hash:
+        return {"error": "manipulated transaction"}
+    
+    print("Hash verified")
+    
+    # Abrufen der öffentlichen Schlüssel des Senders und Empfängers
+    try:
+        sender_response = requests.get(f"http://{transaction.sender}:8000/public_key")
+        sender_response.raise_for_status()
+        sender_public_key_pem = sender_response.json()['public_key']
+        
+        recipient_response = requests.get(f"http://{transaction.recipient}:8000/public_key")
+        recipient_response.raise_for_status()
+        recipient_public_key_pem = recipient_response.json()['public_key']
+    
+    except requests.RequestException as e:
+        raise HTTPException(status_code=400, detail="Error fetching public keys")
+    
+    # Verifizieren der Sender-Signatur
+    try:
+        sender_public_key = load_pem_public_key(sender_public_key_pem.encode("utf-8"))
+        sender_signature = bytes.fromhex(transaction.sender_signature)
+        sender_public_key.verify(
+            sender_signature,
+            transaction_hash.encode('utf-8'),
+            padding.PKCS1v15(),
+            hashes.SHA256()
+        )
+    except InvalidSignature:
+        raise HTTPException(status_code=400, detail="Invalid sender signature")
+    
+    print("Sender signature verified")
+    
+    # Verifizieren der Empfänger-Signatur
+    try:
+        recipient_public_key = load_pem_public_key(recipient_public_key_pem.encode("utf-8"))
+        recipient_signature = bytes.fromhex(transaction.recipient_signature)
+        recipient_public_key.verify(
+            recipient_signature,
+            transaction_hash.encode('utf-8'),
+            padding.PKCS1v15(),
+            hashes.SHA256()
+        )
+    except InvalidSignature:
+        raise HTTPException(status_code=400, detail="Invalid recipient signature")
+    
+    print("Recipient signature verified")
+    print("Hallo") 
+    # Signieren der Transaktion durch den Authority-Knoten
+    try:
+        with open("private_key.pem", "rb") as key_file:
+            private_key = load_pem_private_key(key_file.read(), password=None)
+        
+        signature = private_key.sign(
+            transaction_hash.encode('utf-8'),
+            padding.PKCS1v15(),
+            hashes.SHA256()
+        )
+        
+        print("Hallo2")
+        transaction_data["authority_signature"] = signature.hex()
+        print(transaction_data)
+        print("Hallo3")
+        transchain.transactions.append(transaction_data)
+        print("Hallo4")
+        print("Transaction added to the chain")
+        return {"message": "Transaction verified and added to the chain"}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error signing transaction: {e}")
