@@ -12,12 +12,13 @@ from transchain import Transchain
 from rsa_utils import generate_rsa_keys, sign_data, verify_signature, load_public_key, load_private_key
 import random
 import traceback
+import time
 app = FastAPI()
 
 container_name = os.getenv("CONTAINERNAME")
 blocker = None 
 list_of_blockers = []
-AUTHORITY_NODES = ["http://fastapi_app_2:8000/", "http://fastapi_app_3:8000", "http://fastapi_app_4:8000"]
+AUTHORITY_NODES = ["http://fastapi_app_2:8000/", "http://fastapi_app_3:8000/", "http://fastapi_app_4:8000/"]
 transaction_requests: List[Transaction] = []
 
 PRIVATE_KEY_FILE = "private_key.pem"
@@ -147,12 +148,17 @@ def verify_transaction(transaction: Transaction):
     
     - **transaction**: The transaction to verify and add.
     """
+    global blocker 
+    global container_name
+    global list_of_blockers
+
     if blocker is not None:
         return {"message": "try again"}
-
-    transaction_data = transaction.dict()
-    global container_name
     
+    blocker = container_name
+    time.sleep(6)
+    transaction_data = transaction.dict()
+
     if not transchain.verify_transaction(transaction_data, PRIVATE_KEY_FILE):
         return {"message": "transaction is not valid"}
     
@@ -187,9 +193,8 @@ def verify_transaction(transaction: Transaction):
                 elif response_data.get("message") == "we have to synchronize...":
                     print(f"Synchronization required by {authority_node}")
                     synchronization_needed = True
-                    # You can add additional synchronization logic here if needed
-                    break  # Break out of the loop to handle synchronization
-                elif response_data.get("message") == "sorry transaction is already going":
+                    break  
+                elif response_data.get("message") == "Sorry, transaction is already in process.":
                     list_of_blockers.append(response_data.get("blocker"))
                 else:
                     print(f"Unknown response from {authority_node}: {response_data}")
@@ -225,14 +230,14 @@ def verify_transaction(transaction: Transaction):
 @app.post('/prepare_transaction')
 def prepare_transaction(transaction: PrepareTransaction):
     global container_name
+    global blocker
+
     if blocker is not None:
         return {'message': 'Sorry, transaction is already in process.', 'blocker': blocker}
 
     transaction_data = transaction.dict()
     transaction_data_index = transaction_data['index']  
-    # Überprüfe, ob der Index der Transaktion mit der aktuellen Länge der Blockchain übereinstimmt
     if transaction_data_index != len(transchain.transactions):
-        # Falls nicht, synchronisieren und den Index der lokalen Blockchain zurückgeben
         return {
             'message': 'We need to synchronize...', 
             'current_index': len(transchain.transactions),  
@@ -242,28 +247,11 @@ def prepare_transaction(transaction: PrepareTransaction):
         blocker = container_name
         return {'message': 'Transaction is good to go.', 'status': 'accepted'}
 
-@app.post("/lock_release_vote/")
-def receive_lock_release_vote(request: AcceptTransactionRequest):
-    global container_name
-    global vote_cast
-    # Use await to get the JSON data from the request
-    request_data = request.dict()
-
-    transaction_index = request_data['number']
-    if transaction_index is None:
-        raise HTTPException(status_code=400, detail="Missing transaction_index")
-
-    # If no vote has been cast for this transaction yet, accept this vote
-    if transaction_index not in votes_cast:
-        votes_cast[transaction_index] = container_name
-        return {"message": "Vote accepted", "voted_for": container_name}
-    # If a vote has already been cast, reject the request
-    return {"message": "Vote rejected, already voted for", "voted_for": votes_cast[transaction_index]}
-
 
 @app.post("/unlock_transaction/")
-def unlock_transaction(request):
+def unlock_transaction():
     global blocker
+    global list_of_blockers
     blocker = None
     list_of_blockers = []
     return {"message": "unlocked"}
@@ -271,6 +259,7 @@ def unlock_transaction(request):
 @app.post("/add_to_chain/")
 def accept_transaction(transaction: Transaction):
     global blocker
+    global list_of_blockers
     transaction_data = transaction.dict()
     if transchain.verify_auth_transaction(transaction_data):
         transchain.transactions.append(transaction_data)
@@ -280,16 +269,18 @@ def accept_transaction(transaction: Transaction):
     return {"message": "transaction not added"}
 
 def initiaze_lock_release():
-    # if the container dies after lock conflict and he is chosen to unlock -> all will be locked forever
-    if container_name == sort(list_of_blockers)[0]:
+    global container_name
+    global list_of_blockers
+    print(list_of_blockers)
+    if container_name == sorted(list_of_blockers)[0]:
+        print("UNLOCKING NOW")
         broadcast_unlock()
-
 
 def broadcast_unlock():
     global container_name
     try:
         for authority_node in AUTHORITY_NODES:
-            unlock_url = f"{authority_node}/unlock_transaction/"
+            unlock_url = f"{authority_node}unlock_transaction/"
             response = requests.post(unlock_url)
             if response.ok:
                 print(f"Transaction unlocked at {authority_node}.")
