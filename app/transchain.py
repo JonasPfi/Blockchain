@@ -155,12 +155,17 @@ class Transchain:
         """
         transaction_hash = self.calculate_hash(transaction_data)
         # Check if the current hash matches
+        print("wa")
         if transaction_hash != transaction_data["current_hash"]:
             return False
         # Check if the previous hash matches the last transaction's current hash
+        print("no")
+        print(transaction_data["previous_hash"])
+        print(self.transactions[-1]["current_hash"])
         if transaction_data["previous_hash"] != self.transactions[-1]["current_hash"]:
             return False
         # Check if the transaction index matches the length of the chain
+        print("g")
         if transaction_data["index"] != len(self.transactions):
             return False
         try:
