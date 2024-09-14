@@ -34,3 +34,6 @@ class SendTransactionRequest(BaseModel):
 
 class AcceptTransactionRequest(BaseModel):
     number: int
+
+class ContainerName(BaseModel):
+    name: str

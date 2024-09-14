@@ -7,12 +7,13 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.exceptions import InvalidSignature
 import os
-from models import Transaction, SendTransactionRequest, AcceptTransactionRequest, PrepareTransaction
+from models import Transaction, SendTransactionRequest, AcceptTransactionRequest, PrepareTransaction, ContainerName
 from transchain import Transchain
 from rsa_utils import generate_rsa_keys, sign_data, verify_signature, load_public_key, load_private_key
 import random
 import traceback
 import time
+from lru_cache import LRUCache
 app = FastAPI()
 
 container_name = os.getenv("CONTAINERNAME")
@@ -20,6 +21,8 @@ blocker = None
 list_of_blockers = []
 AUTHORITY_NODES = ["http://fastapi_app_2:8000/", "http://fastapi_app_3:8000/", "http://fastapi_app_4:8000/"]
 transaction_requests: List[Transaction] = []
+transaction_cache = LRUCache(100)
+connected_nodes = []
 
 PRIVATE_KEY_FILE = "private_key.pem"
 PUBLIC_KEY_FILE = "public_key.pem"
@@ -131,8 +134,7 @@ def accept_transaction(request: AcceptTransactionRequest):
     # Retry in case a authority is down
     for _ in range(0, 3):
         random_authority = random.randint(0, len(AUTHORITY_NODES)-1)
-        print("random auth", random_authority)
-        response = requests.post(f'{AUTHORITY_NODES[random_authority]}/verify_transaction', json=transaction_request)
+        response = requests.post(f'{AUTHORITY_NODES[random_authority]}/verify_transaction/', json=transaction_request)
         if response.status_code == 200:  # API returned OK
             print(f"Transaction verification process initiated")
             break  # Exit loop if verification is successful
@@ -246,7 +248,6 @@ def prepare_transaction(transaction: PrepareTransaction):
         blocker = container_name
         return {'message': 'Transaction is good to go.', 'status': 'accepted'}
 
-
 @app.post("/unlock_transaction/")
 def unlock_transaction():
     global blocker
@@ -255,24 +256,39 @@ def unlock_transaction():
     list_of_blockers = []
     return {"message": "unlocked"}
 
+@app.post("/join")
+def join(container_name: ContainerName):
+    global connected_nodes
+    container_name = container_name.dict()
+    connected_nodes.append(container_name["name"])
+    return {"message": "joined"}
+
+
 @app.post("/add_to_chain/")
-def accept_transaction(transaction: Transaction):
+def add_to_chain(transaction: Transaction):
     global blocker
     global list_of_blockers
+    global transaction_cache
+    global connected_nodes
     transaction_data = transaction.dict()
+    if transaction_cache.exists(transaction_data):
+        return {"message": "transaction was already processed"}
+    transaction_cache.add(transaction_data)
     if transchain.verify_auth_transaction(transaction_data):
         transchain.transactions.append(transaction_data)
         blocker = None
         list_of_blockers = []
-        return {"Message": "transaction added"}
+        for node in connected_nodes:
+            response = requests.post(f'http://{node}:8000/add_to_chain/', json=transaction.dict()).json()
+            if "transaction" not in response["message"]:
+                connected_nodes.remove(node)
+        return {"message": "transaction added"}
     return {"message": "transaction not added"}
 
 def initiaze_lock_release():
     global container_name
     global list_of_blockers
-    print(list_of_blockers)
     if container_name == sorted(list_of_blockers)[0]:
-        print("UNLOCKING NOW")
         broadcast_unlock()
 
 def broadcast_unlock():
@@ -287,3 +303,4 @@ def broadcast_unlock():
                 print(f"Failed to unlock transaction at {authority_node}.")
     except Exception as e:
         print(f"An error occurred during broadcast unlock: {e}")
+
