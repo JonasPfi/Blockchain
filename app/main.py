@@ -156,7 +156,6 @@ def verify_transaction(transaction: Transaction):
         return {"message": "try again"}
     
     blocker = container_name
-    time.sleep(6)
     transaction_data = transaction.dict()
 
     if not transchain.verify_transaction(transaction_data, PRIVATE_KEY_FILE):
