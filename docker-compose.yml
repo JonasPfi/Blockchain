@@ -1,0 +1,40 @@
+version: '3'
+
+services:
+  fastapi_app_1:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8000"
+    networks:
+      - app-network
+    environment:
+      - CONTAINERNAME=fastapi_app_1
+
+  fastapi_app_2:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8000"
+    networks:
+      - app-network
+    environment:
+      - CONTAINERNAME=fastapi_app_1
+
+
+  fastapi_app_3:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8000"
+    networks:
+      - app-network
+    environment:
+      - CONTAINERNAME=fastapi_app_1
+
+networks:
+  app-network:
+    driver: bridge
