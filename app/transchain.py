@@ -141,3 +141,84 @@ class Transchain:
         except requests.RequestException as e:
             print(f"Error fetching public key from {node}: {e}")
             return ""
+    
+    def verify_transaction(self, transaction_data, PRIVATE_KEY_FILE) -> bool:
+        """
+        Verifies the transaction by checking its hash, signatures, and other validation criteria.
+        
+        - **transaction**: The transaction to verify.
+        - **PRIVATE_KEY_FILE**: Path to the private key file for signing.
+        
+        Returns:
+            - `bool`: `True` if the transaction is valid and updated, `False` otherwise.
+            - If valid, the updated transaction data is returned; otherwise, `False`.
+        """
+        transaction_hash = self.calculate_hash(transaction_data)
+        # Check if the current hash matches
+        if transaction_hash != transaction_data["current_hash"]:
+            return False
+        # Check if the previous hash matches the last transaction's current hash
+        if transaction_data["previous_hash"] != self.transactions[-1]["current_hash"]:
+            return False
+        # Check if the transaction index matches the length of the chain
+        if transaction_data["index"] != len(self.transactions):
+            return False
+        try:
+            # Get sender's public key
+            sender_response = requests.get(f"http://{transaction_data['sender']}:8000/public_key")
+            sender_response.raise_for_status()
+            sender_public_key_pem = sender_response.json()['public_key']
+            
+            # Get recipient's public key
+            recipient_response = requests.get(f"http://{transaction_data['recipient']}:8000/public_key")
+            recipient_response.raise_for_status()
+            recipient_public_key_pem = recipient_response.json()['public_key']
+        
+        except requests.RequestException as e:
+            print(f"Error retrieving public keys: {e}")
+            return False
+        
+        # Verify sender's and recipient's signatures
+        if not verify_signature(sender_public_key_pem, transaction_data['sender_signature'], transaction_hash):
+            print("Invalid sender signature")
+            return False
+        
+        if not verify_signature(recipient_public_key_pem, transaction_data['recipient_signature'], transaction_hash):
+            print("Invalid recipient signature")
+            return False
+        return True
+    
+    def verify_auth_transaction(self, transaction_data):
+        """
+        Verifies the transaction by checking its hash, signatures, and other validation criteria.
+        
+        - **transaction**: The transaction to verify.
+        
+        Returns:
+            - `bool`: `True` if the transaction is valid and updated, `False` otherwise.
+            - If valid, the updated transaction data is returned; otherwise, `False`.
+        """
+        self.fetch_authority_public_keys()
+
+        transaction_hash = self.calculate_hash(transaction_data)
+
+        # Check if the current hash matches
+        if transaction_hash != transaction_data["current_hash"]:
+            return False
+
+        # Check if the previous hash matches the last transaction's current hash
+        if transaction_data["previous_hash"] != self.transactions[-1]["current_hash"]:
+            print("ABGELEHENT")
+            return False
+
+        # Check if the transaction index matches the length of the chain
+        if transaction_data["index"] != len(self.transactions):
+            return False
+        valid_authority_signature = False
+        for authority_public_key in self.authority_public_keys:
+            if verify_signature(authority_public_key, transaction_data['authority_signature'], transaction_data['current_hash']):
+                valid_authority_signature = True
+                break 
+        if not valid_authority_signature:
+            return False
+        return True

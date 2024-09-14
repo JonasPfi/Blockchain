@@ -21,8 +21,7 @@ services:
     networks:
       - app-network
     environment:
-      - CONTAINERNAME=fastapi_app_1
-
+      - CONTAINERNAME=fastapi_app_2
 
   fastapi_app_3:
     build:
@@ -33,7 +32,18 @@ services:
     networks:
       - app-network
     environment:
-      - CONTAINERNAME=fastapi_app_1
+      - CONTAINERNAME=fastapi_app_3
+
+  fastapi_app_4:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    ports:
+      - "8004:8000"
+    networks:
+      - app-network
+    environment:
+      - CONTAINERNAME=fastapi_app_4
 
 networks:
   app-network:
