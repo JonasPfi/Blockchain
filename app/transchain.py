@@ -1,7 +1,7 @@
 from datetime import datetime
 import hashlib
 import requests
-from models import Transaction
+from models import Transaction, TransactionChain
 from rsa_utils import *
 
 class Transchain:
@@ -9,17 +9,18 @@ class Transchain:
         """
         Initialize the Transchain with a genesis transaction and an empty list for authority public keys.
         """
-        self.transactions = [self.create_genesis_transaction()]
+        self.transaction_chain = TransactionChain(transactions=[self.create_genesis_transaction()])
         self.authority_public_keys = []
         self.AUTHORITY_NODES = AUTHORITY_NODES
 
-    def create_genesis_transaction(self) -> dict:
+
+    def create_genesis_transaction(self) -> Transaction:
         """
         Create the genesis transaction for the blockchain.
         This transaction does not have previous data and serves as the first block.
         
         Returns:
-            dict: The genesis transaction data.
+            Transaction: The genesis transaction data.
         """
         transaction_data = {
             'index': 0,
@@ -35,7 +36,8 @@ class Transchain:
         }
         transaction_data['current_hash'] = self.calculate_hash(transaction_data)
 
-        return transaction_data
+        return Transaction(**transaction_data)
+
 
     def fetch_authority_public_keys(self):
         """
@@ -50,6 +52,7 @@ class Transchain:
                     self.authority_public_keys.append(public_key)
             except Exception as e:
                 print(f"Error fetching public key from {node_url}: {e}")
+
 
     def calculate_hash(self, data: dict) -> str:
         """
@@ -67,14 +70,6 @@ class Transchain:
 
         return hashlib.sha256(string_to_hash.encode('utf-8')).hexdigest()
 
-    def get_transactions(self) -> list[dict]:
-        """
-        Retrieve the list of transactions.
-
-        Returns:
-            list: The list of transactions in the blockchain.
-        """
-        return self.transactions
 
     def verify_transchain(self, transchain_to_check) -> bool:
         """
@@ -124,6 +119,7 @@ class Transchain:
         return True
 
 
+
     def get_public_key_from_node(self, node: str) -> str:
         """
         Fetches the public key of a given node.
@@ -142,11 +138,12 @@ class Transchain:
             print(f"Error fetching public key from {node}: {e}")
             return ""
     
+
     def verify_transaction(self, transaction_data, PRIVATE_KEY_FILE) -> bool:
         """
         Verifies the transaction by checking its hash, signatures, and other validation criteria.
         
-        - **transaction**: The transaction to verify.
+        - **transaction_data**: Type !Dict!.
         - **PRIVATE_KEY_FILE**: Path to the private key file for signing.
         
         Returns:
@@ -155,18 +152,14 @@ class Transchain:
         """
         transaction_hash = self.calculate_hash(transaction_data)
         # Check if the current hash matches
-        print("wa")
         if transaction_hash != transaction_data["current_hash"]:
             return False
         # Check if the previous hash matches the last transaction's current hash
-        print("no")
-        print(transaction_data["previous_hash"])
-        print(self.transactions[-1]["current_hash"])
-        if transaction_data["previous_hash"] != self.transactions[-1]["current_hash"]:
+        if transaction_data["previous_hash"] != self.transaction_chain.transactions[-1].current_hash:
             return False
         # Check if the transaction index matches the length of the chain
         print("g")
-        if transaction_data["index"] != len(self.transactions):
+        if transaction_data["index"] != len(self.transaction_chain.transactions):
             return False
         try:
             # Get sender's public key
@@ -193,6 +186,7 @@ class Transchain:
             return False
         return True
     
+
     def verify_auth_transaction(self, transaction_data):
         """
         Verifies the transaction by checking its hash, signatures, and other validation criteria.
@@ -212,11 +206,11 @@ class Transchain:
             return False
 
         # Check if the previous hash matches the last transaction's current hash
-        if transaction_data["previous_hash"] != self.transactions[-1]["current_hash"]:
+        if transaction_data["previous_hash"] != self.transaction_chain.transactions[-1].current_hash:
             return False
 
         # Check if the transaction index matches the length of the chain
-        if transaction_data["index"] != len(self.transactions):
+        if transaction_data["index"] != len(self.transaction_chain.transactions):
             return False
         valid_authority_signature = False
         for authority_public_key in self.authority_public_keys:
@@ -227,9 +221,10 @@ class Transchain:
             return False
         return True
 
+
     def synchronize(self, transchain):
         if not self.verify_transchain(transchain):
             return "Transchain not valid"
-        if len(transchain.transactions) > len(self.transactions):
-            self.transactions = transchain 
+        if len(transchain.transactions) > len(self.transaction_chain.transactions):
+            self.transaction_chain = transchain 
         return "Synchronized"
