@@ -76,7 +76,7 @@ class Transchain:
         """
         return self.transactions
 
-    def verify_transchain(self) -> bool:
+    def verify_transchain(self, transchain_to_check) -> bool:
         """
         Verifies the entire transaction chain for consistency and integrity.
 
@@ -84,13 +84,13 @@ class Transchain:
             bool: True if the chain is valid, False otherwise.
         """
         self.fetch_authority_public_keys()
-
-        for i in range(1, len(self.transactions)):
-            current_transaction = self.transactions[i]
-            previous_transaction = self.transactions[i - 1]
+        transchain_to_check = [transaction.dict() for transaction in transchain_to_check.transactions]
+        for i in range(1, len(transchain_to_check)):
+            current_transaction = transchain_to_check[i]
+            previous_transaction = transchain_to_check[i - 1]
 
             # Verify the current hash
-            if current_transaction['current_hash'] != self.calculate_hash(self.transactions[i]):
+            if current_transaction['current_hash'] != self.calculate_hash(transchain_to_check[i]):
                 print(f"Invalid hash at index {i}")
                 return False
 
@@ -213,7 +213,6 @@ class Transchain:
 
         # Check if the previous hash matches the last transaction's current hash
         if transaction_data["previous_hash"] != self.transactions[-1]["current_hash"]:
-            print("ABGELEHENT")
             return False
 
         # Check if the transaction index matches the length of the chain
@@ -227,3 +226,10 @@ class Transchain:
         if not valid_authority_signature:
             return False
         return True
+
+    def synchronize(self, transchain):
+        if not self.verify_transchain(transchain):
+            return "Transchain not valid"
+        if len(transchain.transactions) > len(self.transactions):
+            self.transactions = transchain 
+        return "Synchronized"

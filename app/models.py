@@ -1,18 +1,21 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 class Transaction(BaseModel):
     index: int
     sender: str
     recipient: str
     amount: float
-    expiration: str
+    expiration: Optional[str] = None
     previous_hash: Optional[str] = None
     current_hash: Optional[str] = None
     sender_signature: Optional[str] = None
     recipient_signature: Optional[str] = None
     timestamp: str
     authority_signature: Optional[str] = None
+
+class TransactionChain(BaseModel):
+    transactions: List[Transaction]
 
 class PrepareTransaction(BaseModel):
     index: int

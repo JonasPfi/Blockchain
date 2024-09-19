@@ -7,13 +7,15 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.exceptions import InvalidSignature
 import os
-from models import Transaction, SendTransactionRequest, AcceptTransactionRequest, PrepareTransaction, ContainerName
+from models import Transaction, SendTransactionRequest, AcceptTransactionRequest, PrepareTransaction, ContainerName, TransactionChain
 from transchain import Transchain
 from rsa_utils import generate_rsa_keys, sign_data, verify_signature, load_public_key, load_private_key
 import random
+from fastapi.responses import JSONResponse
 import traceback
 import asyncio
 import time
+from fastapi.exceptions import RequestValidationError
 from lru_cache import LRUCache
 app = FastAPI()
  
@@ -263,14 +265,32 @@ def unlock_transaction():
     list_of_blockers = []
     return {"message": "unlocked"}
 
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    # Print the detailed validation error to console
+    print(f"Validation Error: {exc.errors()}")
+    # Return a JSON response with the error details
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
+    )
 @app.post("/join")
 def join(container_name: ContainerName):
     global connected_nodes
-    container_name = container_name.dict()
-    connected_nodes.append(container_name["name"])
-    return {"message": "joined"}
+    container_name = container_name.dict()["name"]
+    connected_nodes.append(container_name)
+    transaction_list = TransactionChain(transactions=transchain.transactions)
+    response = requests.post(f'http://{container_name}:8000/synchronize', json=transaction_list.dict())
+    return {"message": response.text}
 
 
+@app.post("/synchronize")
+def synchronize(transaction_list: TransactionChain):
+    
+    if len(transaction_list.transactions) > len(transchain.transactions):
+        transchain.synchronize(transaction_list) 
+        return {"message": "synchronized"}
+    return {"message": "nothing to synchronize"}
 @app.post("/add_to_chain/")
 def add_to_chain(transaction: Transaction):
     global blocker
