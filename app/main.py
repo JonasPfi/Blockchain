@@ -12,11 +12,14 @@ from transchain import Transchain
 from rsa_utils import generate_rsa_keys, sign_data, verify_signature, load_public_key, load_private_key
 import random
 import traceback
+import asyncio
 import time
 from lru_cache import LRUCache
 app = FastAPI()
-
+ 
 container_name = os.getenv("CONTAINERNAME")
+blocker_set_time = None
+heartbeat_interval = timedelta(seconds=5)
 blocker = None 
 list_of_blockers = []
 AUTHORITY_NODES = ["http://fastapi_app_2:8000/", "http://fastapi_app_3:8000/", "http://fastapi_app_4:8000/"]
@@ -32,6 +35,10 @@ synchronization_needed = False
 votes_cast = {}
 # Initialize transaction chain
 transchain = Transchain(AUTHORITY_NODES)
+@app.on_event("startup")
+async def startup_event():
+    # Starte den Heartbeat-Task beim Start der FastAPI-Anwendung
+    asyncio.create_task(heartbeat_check())
 
 @app.get("/")
 def read_root():
@@ -304,3 +311,16 @@ def broadcast_unlock():
     except Exception as e:
         print(f"An error occurred during broadcast unlock: {e}")
 
+async def heartbeat_check():
+    global blocker
+    global blocker_set_time
+
+    while True:
+        now = datetime.utcnow()
+        if blocker_set_time and (now - blocker_set_time) > heartbeat_interval:
+            print("Deadlock detected. Attempting to unlock...")
+            blocker = None
+            blocker_set_time = None
+            list_of_blockers = None
+        
+        await asyncio.sleep(1) 
