@@ -360,8 +360,8 @@ async def heartbeat_check():
             blocker = None
             blocker_set_time = None
             list_of_blockers = None
-        
         await asyncio.sleep(1) 
+        
 def calculate_balance(node_name: str):
     balance = 1000 # Initial balance
     for transaction in transchain.transaction_chain.transactions:
