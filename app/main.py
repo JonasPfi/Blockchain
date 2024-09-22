@@ -84,6 +84,11 @@ def send_transaction(request: SendTransactionRequest):
     recipient_container = request.container
     amount = request.amount
 
+    # Check if the sender has enough balance
+    sender_balance = calculate_balance(container_name)
+    if sender_balance < amount:
+        raise HTTPException(status_code=400, detail="Insufficient funds")
+
     current_time = datetime.utcnow()
     expiration_time = current_time + timedelta(minutes=10)
 
@@ -288,11 +293,30 @@ def unlock_transaction():
 
 @app.post("/join")
 def join(container_name: ContainerName):
-    global connected_nodes
-    container_name = container_name.name
-    if container_name not in connected_nodes:
-        connected_nodes.append(container_name)
-    response = requests.post(f'http://{container_name}:8000/synchronize', json=transchain.transaction_chain.model_dump())
+    global connected_nodes, transchain
+    new_node_name = container_name.name
+    if new_node_name not in connected_nodes:
+        connected_nodes.append(new_node_name)
+        initial_transaction_data = {
+            "index": len(transchain.transaction_chain.transactions),
+            "sender": "system",
+            "recipient": new_node_name,
+            "amount": 1000,
+            "previous_hash": transchain.transaction_chain.transactions[-1].current_hash if transchain.transaction_chain.transactions else "",
+            "current_hash": "",
+            "sender_signature": "",
+            "recipient_signature": "",
+            "timestamp": datetime.utcnow().isoformat(),
+            "authority_signature": ""
+        }
+
+        transaction_hash = transchain.calculate_hash(initial_transaction_data)
+        initial_transaction_data["current_hash"] = transaction_hash
+        initial_transaction_data["sender_signature"] = sign_data(PRIVATE_KEY_FILE, transaction_hash)
+        transaction = Transaction(**initial_transaction_data)
+        transchain.transaction_chain.transactions.append(transaction)
+
+    response = requests.post(f'http://{new_node_name}:8000/synchronize', json=transchain.transaction_chain.model_dump())
     return {"message": response.text}
 
 
@@ -359,3 +383,11 @@ async def heartbeat_check():
             list_of_blockers = None
         
         await asyncio.sleep(1) 
+def calculate_balance(node_name: str):
+    balance = 0
+    for transaction in transchain.transaction_chain.transactions:
+        if transaction.sender == node_name:
+            balance -= transaction.amount
+        if transaction.recipient == node_name:
+            balance += transaction.amount
+    return balance
