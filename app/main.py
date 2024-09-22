@@ -84,11 +84,6 @@ def send_transaction(request: SendTransactionRequest):
     recipient_container = request.container
     amount = request.amount
 
-    # Check if the sender has enough balance
-    sender_balance = calculate_balance(container_name)
-    if sender_balance < amount:
-        raise HTTPException(status_code=400, detail="Insufficient funds")
-
     current_time = datetime.utcnow()
     expiration_time = current_time + timedelta(minutes=10)
 
@@ -189,6 +184,9 @@ def verify_transaction(transaction: Transaction):
     
     blocker = container_name
     transaction_data = transaction.dict()
+
+    if not validate_balance(transaction_data["sender"], transaction_data["amount"]):
+        return {"message": "Insufficient balance"}
 
     if not transchain.verify_transaction(transaction_data, PRIVATE_KEY_FILE):
         return {"message": "transaction is not valid"}
@@ -391,3 +389,9 @@ def calculate_balance(node_name: str):
         if transaction.recipient == node_name:
             balance += transaction.amount
     return balance
+
+def validate_balance(node_name: str, amount: int):
+    balance = calculate_balance(node_name)
+    if balance < amount:
+        raise HTTPException(status_code=400, detail="Insufficient funds")
+    return True
