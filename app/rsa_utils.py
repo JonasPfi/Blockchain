@@ -104,6 +104,7 @@ def verify_signature(public_key_pem: str, signature_hex: str, data_hash: str) ->
     Returns:
         bool: True if the signature is valid, False otherwise.
     """
+
     try:
         public_key = load_pem_public_key(public_key_pem.encode("utf-8"))
 
@@ -116,9 +117,11 @@ def verify_signature(public_key_pem: str, signature_hex: str, data_hash: str) ->
             padding.PKCS1v15(),
             hashes.SHA256()
         )
+
         return True
     except InvalidSignature:
         return False
     except Exception as e:
+
         print(f"Error during signature verification: {e}")
         return False
