@@ -228,3 +228,37 @@ class Transchain:
         if len(transchain.transactions) > len(self.transaction_chain.transactions):
             self.transaction_chain = transchain 
         return "Synchronized"
+    
+    def calculate_balance(self, node_name: str):
+        balance = 0
+        for transaction in self.transaction_chain.transactions:
+            if transaction.sender == transaction.recipient == node_name:
+                balance += transaction.amount
+            if transaction.sender == node_name:
+                balance -= transaction.amount
+            if transaction.recipient == node_name:
+                balance += transaction.amount
+        return balance
+    
+    def validate_deposit(self, transaction: Transaction, container_name: str) -> bool:
+        transaction_data = transaction.model_dump() if not isinstance(transaction, dict) else transaction
+
+        # Check if the sender and recipient are the same as the container name
+        if transaction_data['sender'] != container_name:
+            return False
+        if transaction_data['recipient'] != container_name:
+            return False
+        
+        # Retrieve the public key of the container
+        public_key_pem = self.get_public_key_from_node(container_name)
+        
+        # Validate the sender's signature
+        if not verify_signature(public_key_pem, transaction_data['sender_signature'], transaction_data['current_hash']):
+            return False
+        
+        # Validate the recipient's signature
+        if not verify_signature(public_key_pem, transaction_data['recipient_signature'], transaction_data['current_hash']):
+            return False
+        
+        # If all checks passed, return True
+        return True

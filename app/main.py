@@ -7,7 +7,7 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.exceptions import InvalidSignature
 import os
-from models import Transaction, SendTransactionRequest, AcceptTransactionRequest, PrepareTransaction, ContainerName, TransactionChain
+from models import Transaction, SendTransactionRequest, AcceptTransactionRequest, PrepareTransaction, ContainerName, TransactionChain, SendMoney
 from transchain import Transchain
 from rsa_utils import generate_rsa_keys, sign_data, verify_signature, load_public_key, load_private_key
 import random
@@ -164,10 +164,90 @@ def accept_transaction(request: AcceptTransactionRequest):
             break  # Exit loop if verification is successful
     return {"message": response.json()}
 
+@app.post("/get_balance")
+def get_balance():
+    return {"balance": transchain.calculate_balance(container_name)}
+    
+@app.post("/deposit_money")
+def deposit_money(request: SendMoney):
+    for authority_node in AUTHORITY_NODES:
+        auth_deposit_money_url = f"{authority_node}/auth_deposit_money/"
+        try:
+            response = requests.post(auth_deposit_money_url, json=request.model_dump())
+            if response.ok:
+                return {"message": "Money deposited successfully"}
+            else:
+                raise HTTPException(status_code=response.status_code, detail="Failed to deposit money")
+        except Exception as e:
+            print(f"Error in contacting {authority_node}: {e}")
+            raise HTTPException(status_code=500, detail="Internal server error during deposit")
+
+@app.post("/sign_money_deposit")
+def sign_money_deposit(transaction: Transaction):
+    global container_name
+    transaction_data = transaction.model_dump()
+    current_hash = transchain.calculate_hash(transaction_data)
+    signature = sign_data(PRIVATE_KEY_FILE, current_hash)
+    
+    transaction_data["current_hash"] = current_hash
+    
+    if transaction.sender != container_name or transaction.recipient != container_name:
+        return {"message": "error", "detail": "Invalid sender or recipient"}
+
+    # Sign the transaction
+    transaction_data["sender_signature"] = signature
+    transaction_data["recipient_signature"] = signature
+
+    return {"message": "ok", "transaction": transaction_data}
 
 """
 Authority Routes
 """
+@app.post("/auth_deposit_money")
+def auth_deposit_money(request: SendMoney):
+    current_time = datetime.utcnow()
+    expiration_time = current_time + timedelta(minutes=10)
+    
+    # Create a transaction dictionary
+    transaction_data = {
+        "index": transchain.transaction_chain.transactions[-1].index + 1,
+        "sender": request.name,
+        "recipient": request.name,
+        "amount": request.amount,
+        "previous_hash": transchain.transaction_chain.transactions[-1].current_hash,
+        "expiration": expiration_time.isoformat(),
+        "current_hash": "",
+        "sender_signature": "",
+        "recipient_signature": "",
+        "timestamp": "", 
+        "authority_signature": ""
+    }
+    
+    transaction = Transaction(**transaction_data)
+    
+    try:
+        response = requests.post(f"http://{transaction_data['sender']}:8000/sign_money_deposit", json=transaction.model_dump())
+        if response.status_code == 200:
+            transaction = response.json()["transaction"]
+
+            if transchain.validate_deposit(transaction, request.name):
+                current_hash = transchain.calculate_hash(transaction)
+                if current_hash != transaction["current_hash"]:
+                    return {"message": "Deposit validation failed"}
+                signature = sign_data(PRIVATE_KEY_FILE, current_hash)
+                transaction["authority_signature"] = signature
+                current_time = datetime.utcnow().isoformat()
+                transaction["timestamp"] = current_time
+                requests.post(f"http://{container_name}:8000/verify_transaction/", json=transaction)
+                return {"message": "Deposit validated successfully"}
+            else:
+                return {"message": "Deposit validation failed"}
+        else:
+            raise HTTPException(status_code=response.status_code, detail="Signing failed")
+    except Exception as e:
+        print(f"Error signing transaction: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error during signing")
+
 @app.post("/verify_transaction/")
 def verify_transaction(transaction: Transaction):
     """
@@ -185,19 +265,28 @@ def verify_transaction(transaction: Transaction):
     blocker = container_name
     transaction_data = transaction.dict()
 
-    if not validate_balance(transaction_data["sender"], transaction_data["amount"]):
-        return {"message": "Insufficient balance"}
-
-    if not transchain.verify_transaction(transaction_data, PRIVATE_KEY_FILE):
-        return {"message": "transaction is not valid"}
-    
-    try:
-        signature = sign_data(PRIVATE_KEY_FILE, transaction_data["current_hash"])
-        transaction_data["authority_signature"] = signature
-        transaction_data["timestamp"] = str(datetime.utcnow())
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error signing transaction: {e}")
+    """
+    If the sender and recipient is equal
+    it is a deposit and was already verified
+    (signed)
+    """
+    if transaction_data["sender"] == transaction_data["recipient"]:
+        if not transaction_data["authority_signature"] and not transchain.validate_auth_transaction(transaction_data):
+            return {"message": "transaction is not valid"}
+    else:      
+        sender_balance = transchain.calculate_balance(transaction_data["sender"])
+        if sender_balance < transaction_data["amount"]:
+            return {"message": "Insufficient balance"}
+        if not transchain.verify_transaction(transaction_data, PRIVATE_KEY_FILE):
+            return {"message": "transaction is not valid"}
+        
+        try:
+            signature = sign_data(PRIVATE_KEY_FILE, transaction_data["current_hash"])
+            transaction_data["authority_signature"] = signature
+            transaction_data["timestamp"] = str(datetime.utcnow())
+        
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error signing transaction: {e}")
 
     approvals = len(AUTHORITY_NODES) - 1  # Quorum
     successful_approvals = 0
@@ -330,6 +419,9 @@ def add_to_chain(transaction: Transaction):
         return {"message": "transaction added"}
     return {"message": "transaction not added"}
 
+
+
+
 def initiaze_lock_release():
     global container_name
     global list_of_blockers
@@ -360,19 +452,5 @@ async def heartbeat_check():
             blocker = None
             blocker_set_time = None
             list_of_blockers = None
-        await asyncio.sleep(1) 
-        
-def calculate_balance(node_name: str):
-    balance = 1000 # Initial balance
-    for transaction in transchain.transaction_chain.transactions:
-        if transaction.sender == node_name:
-            balance -= transaction.amount
-        if transaction.recipient == node_name:
-            balance += transaction.amount
-    return balance
+        await asyncio.sleep(1)
 
-def validate_balance(node_name: str, amount: int):
-    balance = calculate_balance(node_name)
-    if balance < amount:
-        raise HTTPException(status_code=400, detail="Insufficient funds")
-    return True
