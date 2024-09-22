@@ -234,6 +234,7 @@ class Transchain:
         for transaction in self.transaction_chain.transactions:
             if transaction.sender == transaction.recipient == node_name:
                 balance += transaction.amount
+                continue
             if transaction.sender == node_name:
                 balance -= transaction.amount
             if transaction.recipient == node_name:
