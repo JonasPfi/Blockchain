@@ -262,11 +262,13 @@ def verify_transaction(transaction: Transaction):
     global blocker 
     global container_name
     global list_of_blockers
+    global blocker_set_time
 
     if blocker is not None:
         return {"message": "try again"}
     
     blocker = container_name
+    blocker_set_time = datetime.utcnow() 
     transaction_data = transaction.dict()
 
     """
