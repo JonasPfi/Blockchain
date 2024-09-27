@@ -40,3 +40,7 @@ class AcceptTransactionRequest(BaseModel):
 
 class ContainerName(BaseModel):
     name: str
+
+class SendMoney(BaseModel):
+    name: str
+    amount: int
