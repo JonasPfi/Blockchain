@@ -144,7 +144,8 @@ def accept_transaction(request: AcceptTransactionRequest):
         raise HTTPException(status_code=400, detail="Invalid transaction index")
 
     transaction_request = transaction_requests.transactions[index_of_request].model_dump()
-
+    print(transaction_request["index"])
+    print(transchain.transaction_chain.transactions[-1].index)
 
     private_key = load_private_key(PRIVATE_KEY_FILE)
     transaction_hash = transchain.calculate_hash(transaction_request)
@@ -164,7 +165,7 @@ def accept_transaction(request: AcceptTransactionRequest):
             break  # Exit loop if verification is successful
     return {"message": response.json()}
 
-@app.post("/get_balance")
+@app.get("/get_balance")
 def get_balance():
     return {"balance": transchain.calculate_balance(container_name)}
     
@@ -175,7 +176,7 @@ def deposit_money(request: SendMoney):
         try:
             response = requests.post(auth_deposit_money_url, json=request.model_dump())
             if response.ok:
-                return {"message": "Money deposited successfully"}
+                return {"message": response.json()}
             else:
                 raise HTTPException(status_code=response.status_code, detail="Failed to deposit money")
         except Exception as e:
@@ -250,6 +251,9 @@ def auth_deposit_money(request: SendMoney):
 
 @app.post("/verify_transaction/")
 def verify_transaction(transaction: Transaction):
+    def reset_blocker():
+        global blocker
+        blocker = None
     """
     Verifies the transaction by checking its hash and signatures, then adds it to the chain.
     
@@ -270,14 +274,20 @@ def verify_transaction(transaction: Transaction):
     it is a deposit and was already verified
     (signed)
     """
+
+
     if transaction_data["sender"] == transaction_data["recipient"]:
         if not transaction_data["authority_signature"] and not transchain.validate_auth_transaction(transaction_data):
+            reset_blocker()
             return {"message": "transaction is not valid"}
     else:      
         sender_balance = transchain.calculate_balance(transaction_data["sender"])
+
         if sender_balance < transaction_data["amount"]:
+            reset_blocker()
             return {"message": "Insufficient balance"}
         if not transchain.verify_transaction(transaction_data, PRIVATE_KEY_FILE):
+            reset_blocker()
             return {"message": "transaction is not valid"}
         
         try:
@@ -286,6 +296,7 @@ def verify_transaction(transaction: Transaction):
             transaction_data["timestamp"] = str(datetime.utcnow())
         
         except Exception as e:
+            reset_blocker()
             raise HTTPException(status_code=500, detail=f"Error signing transaction: {e}")
 
     approvals = len(AUTHORITY_NODES) - 1  # Quorum
