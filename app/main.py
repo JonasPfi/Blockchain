@@ -376,10 +376,10 @@ def unlock_transaction():
 @app.post("/join")
 def join(container_name: ContainerName):
     global connected_nodes
-    container_name = container_name.name
-    if container_name not in connected_nodes:
-        connected_nodes.append(container_name)
-    response = requests.post(f'http://{container_name}:8000/synchronize', json=transchain.transaction_chain.model_dump())
+    container_name_ = str(container_name.name)
+    if container_name_ not in connected_nodes:
+        connected_nodes.append(container_name_)
+    response = requests.post(f'http://{container_name_}:8000/synchronize', json=transchain.transaction_chain.model_dump())
     return {"message": response.text}
 
 
@@ -391,6 +391,7 @@ def synchronize(transaction_list: TransactionChain):
     return {"message": "nothing to synchronize"}
 
 @app.post("/add_to_chain/")
+
 def add_to_chain(transaction: Transaction):
     global blocker
     global list_of_blockers
@@ -408,18 +409,25 @@ def add_to_chain(transaction: Transaction):
         blocker = None
         list_of_blockers = []
         for node in connected_nodes:
-            response = requests.post(f'http://{node}:8000/add_to_chain/', json=transaction.dict()).json()
-            if "transaction" not in response["message"]:
+            print("CONNECTED NODES", connected_nodes)
+            try:
+                response = requests.post(f'http://{node}:8000/add_to_chain/', json=transaction.model_dump())
+                if response.status_code == 200 and "transaction" not in response.json().get("message", ""):
+                    connected_nodes.remove(node)
+            except Exception as e:
+                print(f"Error communicating with {node}: {e}")
                 connected_nodes.remove(node)
         return {"message": "transaction added"}
+
+    blocker = None
+    list_of_blockers = []
     return {"message": "transaction not added"}
-
-
 
 
 def initiaze_lock_release():
     global container_name
     global list_of_blockers
+    print("wtf what is this", list_of_blockers)
     if container_name == sorted(list_of_blockers)[0]:
         broadcast_unlock()
 
@@ -446,6 +454,6 @@ async def heartbeat_check():
             print("Deadlock detected. Attempting to unlock...")
             blocker = None
             blocker_set_time = None
-            list_of_blockers = None
+            list_of_blockers = []
         await asyncio.sleep(1)
 
