@@ -1,4 +1,4 @@
-ervices:
+services:
   fastapi_app_0:
     build:
       context: ./app
