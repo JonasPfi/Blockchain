@@ -1,21 +1,12 @@
-from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException
 from datetime import datetime, timedelta
 import requests
-from typing import List
-from cryptography.hazmat.primitives import serialization, hashes
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.exceptions import InvalidSignature
 import os
 from models import Transaction, SendTransactionRequest, AcceptTransactionRequest, PrepareTransaction, ContainerName, TransactionChain, SendMoney
 from transchain import Transchain
-from rsa_utils import generate_rsa_keys, sign_data, verify_signature, load_public_key, load_private_key
+from rsa_utils import generate_rsa_keys, sign_data, load_public_key, load_private_key
 import random
-from fastapi.responses import JSONResponse
-import traceback
 import asyncio
-import time
-from fastapi.exceptions import RequestValidationError
 from lru_cache import LRUCache
 app = FastAPI()
  
@@ -55,15 +46,6 @@ def read_root():
 def get_transactions():
     """Returns the list of transactions in the blockchain."""
     return transchain.transaction_chain.model_dump()
-
-
-@app.get("/verify_chain")
-def verify_chain():
-    """Checks if the blockchain is valid and returns the result."""
-    if transchain.verify_transchain():
-        return {"message": "Chain is valid"}
-    return {"error": "Chain verification failed"}
-
 
 @app.get("/public_key")
 def get_public_key():
@@ -269,7 +251,7 @@ def verify_transaction(transaction: Transaction):
     
     blocker = container_name
     blocker_set_time = datetime.utcnow() 
-    transaction_data = transaction.dict()
+    transaction_data = transaction.model_dump()
 
     """
     If the sender and recipient is equal
@@ -369,7 +351,7 @@ def prepare_transaction(transaction: PrepareTransaction):
     if blocker is not None:
         return {'message': 'Sorry, transaction is already in process.', 'blocker': blocker}
 
-    transaction_data = transaction.dict()
+    transaction_data = transaction.model_dump()
     transaction_data_index = transaction_data['index']  
     if transaction_data_index != transchain_len:
         return {
@@ -457,7 +439,7 @@ def broadcast_unlock():
 async def heartbeat_check():
     global blocker
     global blocker_set_time
-
+    global list_of_blockers
     while True:
         now = datetime.utcnow()
         if blocker_set_time and (now - blocker_set_time) > heartbeat_interval:
