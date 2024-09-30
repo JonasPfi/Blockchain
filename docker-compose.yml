@@ -1,6 +1,4 @@
-version: '3'
-
-services:
+ervices:
   fastapi_app_0:
     build:
       context: ./app
