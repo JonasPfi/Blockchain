@@ -1,4 +1,8 @@
 # Blockchain
+How to use:
+```
+docker-compose up
+```
 ### How to use the api requests:
 
 1. Deposit Money
