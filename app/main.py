@@ -1,21 +1,12 @@
-from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException
 from datetime import datetime, timedelta
 import requests
-from typing import List
-from cryptography.hazmat.primitives import serialization, hashes
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.exceptions import InvalidSignature
 import os
 from models import Transaction, SendTransactionRequest, AcceptTransactionRequest, PrepareTransaction, ContainerName, TransactionChain, SendMoney
 from transchain import Transchain
-from rsa_utils import generate_rsa_keys, sign_data, verify_signature, load_public_key, load_private_key
+from rsa_utils import generate_rsa_keys, sign_data, load_public_key, load_private_key
 import random
-from fastapi.responses import JSONResponse
-import traceback
 import asyncio
-import time
-from fastapi.exceptions import RequestValidationError
 from lru_cache import LRUCache
 app = FastAPI()
  
@@ -35,39 +26,25 @@ PUBLIC_KEY_FILE = "public_key.pem"
 generate_rsa_keys(PRIVATE_KEY_FILE, PUBLIC_KEY_FILE)
 synchronization_needed = False
 votes_cast = {}
+
 # Initialize transaction chain
 transchain = Transchain(AUTHORITY_NODES)
 
 
 @app.on_event("startup")
 async def startup_event():
-    # Starte den Heartbeat-Task beim Start der FastAPI-Anwendung
     asyncio.create_task(heartbeat_check())
-
 
 @app.get("/")
 def read_root():
-    """Returns a welcome message."""
     return {"message": "Hello from FastAPI!"}
-
 
 @app.get("/transactions")
 def get_transactions():
-    """Returns the list of transactions in the blockchain."""
     return transchain.transaction_chain.model_dump()
-
-
-@app.get("/verify_chain")
-def verify_chain():
-    """Checks if the blockchain is valid and returns the result."""
-    if transchain.verify_transchain():
-        return {"message": "Chain is valid"}
-    return {"error": "Chain verification failed"}
-
 
 @app.get("/public_key")
 def get_public_key():
-    """Returns the public key of this FastAPI application."""
     public_key = load_public_key(PUBLIC_KEY_FILE)
     return {"public_key": public_key}
 
@@ -75,9 +52,9 @@ def get_public_key():
 @app.post("/send_transaction/")
 def send_transaction(request: SendTransactionRequest):
     """
-    Sends a transaction to a recipient container.
+    Sends a transaction to a recipient container
     
-    - **request**: Contains the recipient container and amount to be transferred.
+    - **request**: Contains the recipient container and amount to be transferred
     """
     global container_name
 
@@ -116,9 +93,9 @@ def send_transaction(request: SendTransactionRequest):
 @app.post("/receive_transaction/")
 def receive_transaction(transaction: Transaction):
     """
-    Receives a transaction and appends it to the local list of transaction requests.
+    Receives a transaction and appends it to the local list of transaction requests
     
-    - **transaction**: The transaction to be received.
+    - **transaction**: The transaction to be received
     """
     global transaction_requests
     transaction_requests.transactions.append(transaction)
@@ -127,16 +104,15 @@ def receive_transaction(transaction: Transaction):
 
 @app.get("/show_transactions")
 def show_transactions():
-    """Returns the list of received transactions."""
     return {"transaction requests": transaction_requests}
 
 
 @app.post("/accept_transaction/")
 def accept_transaction(request: AcceptTransactionRequest):
     """
-    Accepts a transaction request, signs it, and sends it to an authority node.
+    Accepts a transaction request, signs it, and sends it to an authority node
     
-    - **request**: Contains the index of the transaction request to accept.
+    - **request**: Contains the index of the transaction request to accept
     """
     index_of_request = request.number
 
@@ -144,10 +120,6 @@ def accept_transaction(request: AcceptTransactionRequest):
         raise HTTPException(status_code=400, detail="Invalid transaction index")
 
     transaction_request = transaction_requests.transactions[index_of_request].model_dump()
-    print(transaction_request["index"])
-    print(transchain.transaction_chain.transactions[-1].index)
-
-    private_key = load_private_key(PRIVATE_KEY_FILE)
     transaction_hash = transchain.calculate_hash(transaction_request)
 
     if transaction_hash != transaction_request["current_hash"]:
@@ -201,6 +173,7 @@ def sign_money_deposit(transaction: Transaction):
 
     return {"message": "ok", "transaction": transaction_data}
 
+
 """
 Authority Routes
 """
@@ -251,14 +224,14 @@ def auth_deposit_money(request: SendMoney):
 
 @app.post("/verify_transaction/")
 def verify_transaction(transaction: Transaction):
-    def reset_blocker():
-        global blocker
-        blocker = None
     """
     Verifies the transaction by checking its hash and signatures, then adds it to the chain.
     
     - **transaction**: The transaction to verify and add.
     """
+    def reset_blocker():
+        global blocker
+        blocker = None
     global blocker 
     global container_name
     global list_of_blockers
@@ -269,17 +242,15 @@ def verify_transaction(transaction: Transaction):
     
     blocker = container_name
     blocker_set_time = datetime.utcnow() 
-    transaction_data = transaction.dict()
+    transaction_data = transaction.model_dump()
 
     """
     If the sender and recipient is equal
     it is a deposit and was already verified
     (signed)
     """
-
-
     if transaction_data["sender"] == transaction_data["recipient"]:
-        if not transaction_data["authority_signature"] and not transchain.validate_auth_transaction(transaction_data):
+        if not transaction_data["authority_signature"] and not transchain.verify_transaction(transaction_data):
             reset_blocker()
             return {"message": "transaction is not valid"}
     else:      
@@ -288,7 +259,7 @@ def verify_transaction(transaction: Transaction):
         if sender_balance < transaction_data["amount"]:
             reset_blocker()
             return {"message": "Insufficient balance"}
-        if not transchain.verify_transaction(transaction_data, PRIVATE_KEY_FILE):
+        if not transchain.verify_transaction(transaction_data):
             reset_blocker()
             return {"message": "transaction is not valid"}
         
@@ -334,12 +305,12 @@ def verify_transaction(transaction: Transaction):
 
             # If the response is None or failed, adjust the approvals
             if not response:
-                approvals -= 1  # Reduce required approvals for quorum
+                approvals -= 1 
 
             # Check if quorum (enough approvals) has been reached
             if successful_approvals >= approvals:
                 print("Consensus reached, transaction can be committed.")
-                break  # Break out of the loop as we have enough approvals
+                break 
 
     except Exception as e:
         print(e) 
@@ -369,7 +340,7 @@ def prepare_transaction(transaction: PrepareTransaction):
     if blocker is not None:
         return {'message': 'Sorry, transaction is already in process.', 'blocker': blocker}
 
-    transaction_data = transaction.dict()
+    transaction_data = transaction.model_dump()
     transaction_data_index = transaction_data['index']  
     if transaction_data_index != transchain_len:
         return {
@@ -394,10 +365,10 @@ def unlock_transaction():
 @app.post("/join")
 def join(container_name: ContainerName):
     global connected_nodes
-    container_name = container_name.name
-    if container_name not in connected_nodes:
-        connected_nodes.append(container_name)
-    response = requests.post(f'http://{container_name}:8000/synchronize', json=transchain.transaction_chain.model_dump())
+    container_name_ = str(container_name.name)
+    if container_name_ not in connected_nodes:
+        connected_nodes.append(container_name_)
+    response = requests.post(f'http://{container_name_}:8000/synchronize', json=transchain.transaction_chain.model_dump())
     return {"message": response.text}
 
 
@@ -409,6 +380,7 @@ def synchronize(transaction_list: TransactionChain):
     return {"message": "nothing to synchronize"}
 
 @app.post("/add_to_chain/")
+
 def add_to_chain(transaction: Transaction):
     global blocker
     global list_of_blockers
@@ -426,13 +398,19 @@ def add_to_chain(transaction: Transaction):
         blocker = None
         list_of_blockers = []
         for node in connected_nodes:
-            response = requests.post(f'http://{node}:8000/add_to_chain/', json=transaction.dict()).json()
-            if "transaction" not in response["message"]:
+            print("CONNECTED NODES", connected_nodes)
+            try:
+                response = requests.post(f'http://{node}:8000/add_to_chain/', json=transaction.model_dump())
+                if response.status_code == 200 and "transaction" not in response.json().get("message", ""):
+                    connected_nodes.remove(node)
+            except Exception as e:
+                print(f"Error communicating with {node}: {e}")
                 connected_nodes.remove(node)
         return {"message": "transaction added"}
+
+    blocker = None
+    list_of_blockers = []
     return {"message": "transaction not added"}
-
-
 
 
 def initiaze_lock_release():
@@ -457,13 +435,13 @@ def broadcast_unlock():
 async def heartbeat_check():
     global blocker
     global blocker_set_time
-
+    global list_of_blockers
     while True:
         now = datetime.utcnow()
         if blocker_set_time and (now - blocker_set_time) > heartbeat_interval:
             print("Deadlock detected. Attempting to unlock...")
             blocker = None
             blocker_set_time = None
-            list_of_blockers = None
+            list_of_blockers = []
         await asyncio.sleep(1)
 

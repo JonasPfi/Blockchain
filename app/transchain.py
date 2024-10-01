@@ -139,7 +139,7 @@ class Transchain:
             return ""
     
 
-    def verify_transaction(self, transaction_data, PRIVATE_KEY_FILE) -> bool:
+    def verify_transaction(self, transaction_data) -> bool:
         """
         Verifies the transaction by checking its hash, signatures, and other validation criteria.
         
@@ -147,8 +147,7 @@ class Transchain:
         - **PRIVATE_KEY_FILE**: Path to the private key file for signing.
         
         Returns:
-            - `bool`: `True` if the transaction is valid and updated, `False` otherwise.
-            - If valid, the updated transaction data is returned; otherwise, `False`.
+            - `bool`: `True` if the transaction is valid, `False` otherwise.
         """
         transaction_hash = self.calculate_hash(transaction_data)
         # Check if the current hash matches

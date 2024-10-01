@@ -1,5 +1,3 @@
-version: '3'
-
 services:
   fastapi_app_0:
     build:
